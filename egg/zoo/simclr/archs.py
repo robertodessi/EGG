@@ -121,7 +121,7 @@ class Sender(nn.Module):
         x = self.fwd(x)
         message = self.gs_layer(x)
         out = self.fc(message)
-        return out, message
+        return out, message, x
 
 
 class Receiver(nn.Module):
