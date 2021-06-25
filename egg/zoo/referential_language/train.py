@@ -11,7 +11,6 @@ import egg.core as core
 from egg.zoo.referential_language.data import get_dataloader
 from egg.zoo.referential_language.game_callbacks import get_callbacks
 from egg.zoo.referential_language.archs import build_game
-from egg.zoo.emcom_as_ssl.LARC import LARC
 
 
 def get_common_opts(params):
@@ -21,9 +20,6 @@ def get_common_opts(params):
         type=float,
         default=10e-6,
         help="Weight decay used for SGD",
-    )
-    parser.add_argument(
-        "--no_larc", action="store_true", default=False, help="Use plain SGD"
     )
     parser.add_argument(
         "--pdb",
@@ -36,6 +32,18 @@ def get_common_opts(params):
         action="store_true",
         default=False,
         help="Run the game with wandb enabled",
+    )
+    parser.add_argument(
+        "--sender_type",
+        choices=["cat", "proj"],
+        default="cat",
+        help="Model architecture",
+    )
+    parser.add_argument(
+        "--merge_mode",
+        choices=["sum", "cat", "mul"],
+        default="sum",
+        help="How to combine coordinate information with visual features in proj sender (default: sum)",
     )
     parser.add_argument(
         "--model_name",
@@ -54,10 +62,10 @@ def get_common_opts(params):
         "--num_classes", type=int, default=80, help="Num of prediction layer"
     )
     parser.add_argument(
-        "--pretrain_vision",
+        "--random_coord",
         default=False,
         action="store_true",
-        help="If set, pretrained vision modules will be used",
+        help="Run the model generating random coordinates",
     )
     parser.add_argument("--image_size", type=int, default=224, help="Image size")
     parser.add_argument(
@@ -65,7 +73,6 @@ def get_common_opts(params):
     )
 
     opts = core.init(arg_parser=parser, params=params)
-    opts.use_larc = not opts.no_larc
     return opts
 
 
@@ -87,24 +94,18 @@ def add_weight_decay(model, weight_decay=1e-5, skip_name=""):
 
 def main(params):
     opts = get_common_opts(params=params)
-    print(f"{opts}\n")
-    assert (
-        not opts.batch_size % 2
-    ), f"Batch size must be multiple of 2. Found {opts.batch_size} instead"
-    print(
-        f"Running a distruted training is set to: {opts.distributed_context.is_distributed}. "
-        f"World size is {opts.distributed_context.world_size}. "
-        f"Using batch of size {opts.batch_size} on {opts.distributed_context.world_size} device(s)\n"
-        f"Image size: {opts.image_size}.\n"
-    )
-    if not opts.distributed_context.is_distributed and opts.pdb:
+
+    print(f"{opts}")
+    print(f"Using batch of size {opts.batch_size} with image size: {opts.image_size}.")
+
+    if opts.pdb:
         breakpoint()
 
     train_loader = get_dataloader(
         image_size=opts.image_size,
         batch_size=opts.batch_size,
         num_workers=opts.num_workers,
-        is_distributed=opts.distributed_context.is_distributed,
+        random_coord=opts.random_coord,
         seed=opts.random_seed,
     )
 
@@ -120,13 +121,6 @@ def main(params):
     optimizer_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=opts.n_epochs
     )
-
-    if (
-        opts.distributed_context.is_distributed
-        and opts.distributed_context.world_size > 2
-        and opts.use_larc
-    ):
-        optimizer = LARC(optimizer, trust_coefficient=0.001, clip=False, eps=1e-8)
 
     trainer = core.Trainer(
         game=game,

@@ -13,7 +13,6 @@ from egg.core import Callback, ConsoleLogger, Interaction
 from egg.core.callbacks import WandbLogger
 from egg.zoo.emcom_as_ssl.game_callbacks import (
     BestStatsTracker,
-    DistributedSamplerEpochSetter,
 )
 
 
@@ -22,23 +21,14 @@ class VisionModelSaver(Callback):
 
     def save_vision_model(self, epoch=""):
         if hasattr(self.trainer, "checkpoint_path"):
-            if (
-                self.trainer.checkpoint_path
-                and self.trainer.distributed_context.is_leader
-            ):
-                self.trainer.checkpoint_path.mkdir(exist_ok=True, parents=True)
-                if self.trainer.distributed_context.is_distributed:
-                    # if distributed training the model is an instance of
-                    # DistributedDataParallel and we need to unpack it from it.
-                    vision_module = self.trainer.game.module.vision_encoder
-                else:
-                    vision_module = self.trainer.game.vision_encoder
+            self.trainer.checkpoint_path.mkdir(exist_ok=True, parents=True)
+            vision_module = self.trainer.game.sender.vision_encoder
 
-                model_name = f"vision_module_{epoch if epoch else 'final'}.pt"
-                torch.save(
-                    vision_module.encoder.state_dict(),
-                    self.trainer.checkpoint_path / model_name,
-                )
+            model_name = f"vision_module_{epoch if epoch else 'final'}.pt"
+            torch.save(
+                vision_module.state_dict(),
+                self.trainer.checkpoint_path / model_name,
+            )
 
     def on_train_end(self):
         self.save_vision_model()
@@ -79,11 +69,8 @@ def get_callbacks(opts):
     callbacks = [
         ConsoleLogger(as_json=True, print_train_loss=True),
         BestStatsTracker(),
-        # VisionModelSaver(),
     ]
 
-    if opts.distributed_context.is_distributed:
-        callbacks.append(DistributedSamplerEpochSetter())
     if opts.wandb:
         run_name = opts.checkpoint_dir.split("/")[-1] if opts.checkpoint_dir else ""
         run_id = f"{run_name}_{str(uuid.uuid4())}"

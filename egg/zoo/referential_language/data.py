@@ -15,7 +15,7 @@ def get_dataloader(
     image_size: int = 32,
     batch_size: int = 32,
     num_workers: int = 4,
-    is_distributed: bool = False,
+    random_coord: bool = False,
     seed: int = 111,
 ):
     transform = transforms.Compose(
@@ -27,21 +27,13 @@ def get_dataloader(
         train_annotation_path,
         transform=transform,
         target_transform=target_transform,
+        random_coord=random_coord,
     )
-
-    train_sampler = None
-    if is_distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-            train_dataset, shuffle=True, drop_last=True, seed=seed
-        )
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=(train_sampler is None),
-        sampler=train_sampler,
-        num_workers=num_workers,
-        pin_memory=True,
+        shuffle=True,
         drop_last=True,
     )
     return train_loader
@@ -49,6 +41,7 @@ def get_dataloader(
 
 class MyCocoDetection(datasets.CocoDetection):
     def __init__(self, *args, **kwargs):
+        self.random_coord = kwargs.pop("random_coord")
         super(MyCocoDetection, self).__init__(*args, **kwargs)
 
     def __getitem__(self, index):
@@ -62,13 +55,17 @@ class MyCocoDetection(datasets.CocoDetection):
         img_size = list(img.size)
         img = self.transform(img)
 
-        coords = torch.Tensor(target[0]["bbox"])
-        coords[2] = coords[0] + coords[2]
-        coords[3] = coords[1] + coords[3]
+        random_target = target[torch.randint(len(target), size=(1,)).item()]
+        if self.random_coord:
+            resized_bbox_coord = torch.rand(4) * min(img.shape[1:])
+        else:
+            coords = torch.Tensor(random_target["bbox"])
+            coords[2] = coords[0] + coords[2]
+            coords[3] = coords[1] + coords[3]
 
-        resized_bbox_coord = self.target_transform(coords, original_size=img_size)
+            resized_bbox_coord = self.target_transform(coords, original_size=img_size)
 
-        label = cat_id2id_and_name[str(target[0]["category_id"])][0]
+        label = cat_id2id_and_name[str(random_target["category_id"])][0]
 
         return (img, resized_bbox_coord), label
 

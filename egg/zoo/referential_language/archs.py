@@ -13,12 +13,12 @@ import torchvision
 from egg.core.interaction import LoggingStrategy
 
 
-def get_vision_module(encoder_arch: str = "resnet50", pretrained: bool = False):
+def get_vision_module(encoder_arch: str = "resnet50"):
     """Loads ResNet encoder from torchvision along with features number"""
     resnets = {
-        "resnet50": torchvision.models.resnet50(pretrained=pretrained),
-        "resnet101": torchvision.models.resnet101(pretrained=pretrained),
-        "resnet152": torchvision.models.resnet152(pretrained=pretrained),
+        "resnet50": torchvision.models.resnet50(),
+        "resnet101": torchvision.models.resnet101(),
+        "resnet152": torchvision.models.resnet152(),
     }
     if encoder_arch not in resnets:
         raise KeyError(f"{encoder_arch} is not a valid ResNet architecture")
@@ -27,24 +27,19 @@ def get_vision_module(encoder_arch: str = "resnet50", pretrained: bool = False):
     n_features = model.fc.in_features
     model.fc = nn.Identity()
 
-    if pretrained:
-        for param in model.parameters():
-            param.requires_grad = False
-        model = model.eval()
-
     return model, n_features
 
 
-class ProjecSender(nn.Module):
+class ProjectSender(nn.Module):
     def __init__(
         self,
         vision_encoder: nn.Module,
-        input_dim: int,
+        visual_features_dim: int,
         hidden_dim: int = 128,
         output_dim: int = 80,
         merge_mode: str = "sum",
     ):
-        super(CatSender, self).__init__()
+        super(ProjectSender, self).__init__()
 
         self.vision_encoder = vision_encoder
 
@@ -54,7 +49,7 @@ class ProjecSender(nn.Module):
         )
 
         self.fc_img = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(visual_features_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
         )
 
@@ -69,20 +64,22 @@ class ProjecSender(nn.Module):
 
         self.merge_mode = merge_mode
 
-        def forward(self, image, coordinates):
-            resnet_output = self.vision_encoder(image)
-            visual_feats = self.fc_img(resnet_output)
+    def forward(self, image, coordinates):
+        resnet_output = self.vision_encoder(image)
+        visual_feats = self.fc_img(resnet_output)
 
-            if self.merge_mode == "cat":
-                vision_and_coord = torch.cat([visual_feats, coordinates], dim=-1)
-            elif self.merge_mode == "sum":
-                vision_and_coord = visual_feats + coordinates
-            elif self.merge_mode == "sum":
-                vision_and_coord = torch.mul(visual_feats, coordinates)
-            else:
-                raise RuntimeError
+        coord_feats = self.fc_coord(coordinates)
 
-            return self.fc_out(vision_and_coord)
+        if self.merge_mode == "cat":
+            vision_and_coord = torch.cat([visual_feats, coord_feats], dim=-1)
+        elif self.merge_mode == "sum":
+            vision_and_coord = visual_feats + coord_feats
+        elif self.merge_mode == "mul":
+            vision_and_coord = torch.mul(visual_feats, coord_feats)
+        else:
+            raise RuntimeError(f"Cannot recognize merge_mode {self.merge_mode}")
+
+        return self.fc_out(vision_and_coord)
 
 
 class CatSender(nn.Module):
@@ -162,18 +159,28 @@ def loss(predictions, labels):
 
 def build_game(opts):
     sender_vision_module, visual_features_dim = get_vision_module(
-        encoder_arch=opts.model_name,
-        pretrained=opts.pretrain_vision,
+        encoder_arch=opts.model_name
     )
 
     logging_strategy = LoggingStrategy(False, False, True, True, True, False)
 
-    sender = CatSender(
-        vision_encoder=sender_vision_module,
-        visual_features_dim=visual_features_dim,
-        hidden_dim=opts.projection_hidden_dim,
-        output_dim=opts.num_classes,
-    )
+    if opts.sender_type == "cat":
+        sender = CatSender(
+            vision_encoder=sender_vision_module,
+            visual_features_dim=visual_features_dim,
+            hidden_dim=opts.projection_hidden_dim,
+            output_dim=opts.num_classes,
+        )
+    elif opts.sender_type == "proj":
+        sender = ProjectSender(
+            vision_encoder=sender_vision_module,
+            visual_features_dim=visual_features_dim,
+            hidden_dim=opts.projection_hidden_dim,
+            output_dim=opts.num_classes,
+            merge_mode=opts.merge_mode,
+        )
+    else:
+        raise ValueError(f"Cannot recognize sender type {opts.sender_type}")
 
     game = ClassPredictionGame(
         sender,
@@ -181,8 +188,5 @@ def build_game(opts):
         train_logging_strategy=logging_strategy,
         test_logging_strategy=logging_strategy,
     )
-
-    if opts.distributed_context.is_distributed:
-        game = torch.nn.SyncBatchNorm.convert_sync_batchnorm(game)
 
     return game
