@@ -106,7 +106,7 @@ class CatSender(nn.Module):
     def forward(self, image, coordinates):
         resnet_output = self.vision_encoder(image)
         vision_and_coord = torch.cat([resnet_output, coordinates], dim=-1)
-        return F.tanh(self.fc_out(vision_and_coord))
+        return torch.tanh(self.fc_out(vision_and_coord))
 
 
 class ClassPredictionGame(nn.Module):

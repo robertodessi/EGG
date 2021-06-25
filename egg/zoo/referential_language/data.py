@@ -6,6 +6,8 @@
 import torch
 from torchvision import datasets, transforms
 
+from egg.zoo.referential_language.utils import cat_id2id_and_name
+
 
 def get_dataloader(
     train_dataset_dir: str = "/datasets01/COCO/022719/val2017",
@@ -26,9 +28,6 @@ def get_dataloader(
         transform=transform,
         target_transform=target_transform,
     )
-
-    # valid_dataset_dir: str = "/datasets01/COCO/022719/val2017",
-    # valid_annotation_path: str = "/datasets01/COCO/022719/annotations/instances_val2017.json",
 
     train_sampler = None
     if is_distributed:
@@ -69,7 +68,7 @@ class MyCocoDetection(datasets.CocoDetection):
 
         resized_bbox_coord = self.target_transform(coords, original_size=img_size)
 
-        label = target[0]["category_id"]
+        label = cat_id2id_and_name[str(target[0]["category_id"])][0]
 
         return (img, resized_bbox_coord), label
 

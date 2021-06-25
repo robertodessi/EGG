@@ -2,7 +2,8 @@
 
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-id2cat = {
+
+cat_id2name = {
     "1": "person",
     "2": "bicycle",
     "3": "car",
@@ -85,7 +86,7 @@ id2cat = {
     "90": "toothbrush",
 }
 
-cat_id2_id_and_name = {
+cat_id2id_and_name = {
     "1": (0, "person"),
     "2": (1, "bicycle"),
     "3": (2, "car"),
