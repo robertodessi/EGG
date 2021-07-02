@@ -3,15 +3,19 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from collections import defaultdict
+from typing import Callable, Optional, Tuple
+
 import torch
 from torchvision import datasets, transforms
 
 from egg.zoo.referential_language.utils import cat_id2id_and_name
+from pycocotools.coco import COCO
 
 
 def get_dataloader(
-    train_dataset_dir: str = "/datasets01/COCO/022719/val2017",
-    train_annotation_path: str = "/datasets01/COCO/022719/annotations/instances_val2017.json",
+    train_dataset_dir: str = "/datasets01/COCO/022719/train2017",
+    train_annotation_path: str = "/datasets01/COCO/022719/annotations/instances_train2017.json",
     image_size: int = 32,
     batch_size: int = 32,
     num_workers: int = 4,
@@ -39,20 +43,74 @@ def get_dataloader(
     return train_loader
 
 
+class MyCOCO(COCO):
+    def createIndex(self):
+        # create index
+        print("creating index...")
+        anns, cats, imgs = {}, {}, {}
+        imgToAnns, catToImgs = defaultdict(list), defaultdict(list)
+
+        if "annotations" in self.dataset:
+            for ann in self.dataset["annotations"]:
+                # removing group annotation, when iscrowd is 1 there's a single bbox around
+                # a group of instances of the same category
+                if ann["iscrowd"]:
+                    continue
+
+                imgToAnns[ann["image_id"]].append(ann)
+                anns[ann["id"]] = ann
+
+        if "images" in self.dataset:
+            for img in self.dataset["images"]:
+                if not imgToAnns[img["id"]]:
+                    continue
+                imgs[img["id"]] = img
+
+        if "categories" in self.dataset:
+            for cat in self.dataset["categories"]:
+                cats[cat["id"]] = cat
+
+        if "annotations" in self.dataset and "categories" in self.dataset:
+            for ann in self.dataset["annotations"]:
+                catToImgs[ann["category_id"]].append(ann["image_id"])
+
+        print("index created!")
+
+        # create class members
+        self.anns = anns
+        self.imgToAnns = imgToAnns
+        self.catToImgs = catToImgs
+        self.imgs = imgs
+        self.cats = cats
+
+
 class MyCocoDetection(datasets.CocoDetection):
-    def __init__(self, *args, **kwargs):
-        self.random_coord = kwargs.pop("random_coord")
-        super(MyCocoDetection, self).__init__(*args, **kwargs)
+    def __init__(
+        self,
+        root: str,
+        annFile: str,
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None,
+        transforms: Optional[Callable] = None,
+        random_coord: Optional[bool] = None,
+    ) -> None:
+        super(MyCocoDetection, self).__init__(
+            root, transforms, transform, target_transform
+        )
+
+        self.coco = MyCOCO(annFile)
+        self.ids = list(sorted(self.coco.imgs.keys()))
+        self.random_coord = random_coord
 
     def __getitem__(self, index):
         img, target = self._load_image_and_target(index)
-        idx = index
-        # avoiding cases where target is an empty list through linear search
-        while len(target) == 0:
-            idx = (idx + 1) % len(self.ids)
-            img, target = self._load_image_and_target(idx)
 
-        img_size = list(img.size)
+        # target = [] if len(target) < 5 else target
+
+        img_size = (
+            img.size[1],
+            img.size[0],
+        )  # pillow images report size in (W, H) format whereas pytorh uses (H, W)
         img = self.transform(img)
 
         random_target = target[torch.randint(len(target), size=(1,)).item()]
@@ -77,7 +135,7 @@ class MyCocoDetection(datasets.CocoDetection):
 
 
 class BoxResize:
-    def __init__(self, new_size):
+    def __init__(self, new_size: Tuple[int, int]):
         self.new_size = new_size
 
     @staticmethod

@@ -130,7 +130,7 @@ class ClassPredictionGame(nn.Module):
             else test_logging_strategy
         )
 
-    def forward(self, sender_input, labels, receiver_input=None):
+    def forward(self, sender_input, labels, receiver_input=None, _aux_input=None):
         image, coordinates = sender_input
         sender_prediction = self.sender(image, coordinates)
         loss, aux_info = self.loss(sender_prediction, labels)
@@ -142,6 +142,7 @@ class ClassPredictionGame(nn.Module):
             sender_input=sender_input,
             receiver_input=receiver_input,
             labels=labels,
+            aux_input=None,
             receiver_output=None,
             message=sender_prediction,
             message_length=torch.ones(sender_prediction.size(0)),
