@@ -1,9 +1,9 @@
 {
-    "n_epoch": [20],
+    "n_epoch": [50],
     "batch_size": [128],
-    "lr": [0.1, 0.001, 0.005, 0.0001],
+    "lr": [0.1, 0.001, 0.005],
     "random_seed": [111],
-    "projection_hidden_dim": [256],
+    "projection_hidden_dim": [256, 512],
     "sender_type": ["proj"],
     "merge_mode": ["cat", "mul", "sum"],
     "random_coord": [true]

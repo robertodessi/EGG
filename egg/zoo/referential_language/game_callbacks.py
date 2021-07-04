@@ -9,7 +9,7 @@ import uuid
 import torch
 import wandb
 
-from egg.core import Callback, ConsoleLogger, Interaction
+from egg.core import Callback, ConsoleLogger, EarlyStopperAccuracy, Interaction
 from egg.core.callbacks import WandbLogger
 from egg.zoo.emcom_as_ssl.game_callbacks import (
     BestStatsTracker,
@@ -69,6 +69,7 @@ def get_callbacks(opts):
     callbacks = [
         ConsoleLogger(as_json=True, print_train_loss=True),
         BestStatsTracker(),
+        EarlyStopperAccuracy(0.95),
     ]
 
     if opts.wandb:

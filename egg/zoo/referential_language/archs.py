@@ -76,6 +76,8 @@ class ProjectSender(nn.Module):
             vision_and_coord = visual_feats + coord_feats
         elif self.merge_mode == "mul":
             vision_and_coord = torch.mul(visual_feats, coord_feats)
+        elif self.merge_mode == "gate":
+            vision_and_coord = torch.mul(visual_feats, torch.sigmoid(coord_feats))
         else:
             raise RuntimeError(f"Cannot recognize merge_mode {self.merge_mode}")
 

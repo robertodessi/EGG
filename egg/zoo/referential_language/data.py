@@ -3,8 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from collections import defaultdict
-from typing import Callable, Optional, Tuple
+from collections import Counter, defaultdict
+from typing import Callable, List, Optional, Tuple
 
 import torch
 from torchvision import datasets, transforms
@@ -20,6 +20,7 @@ def get_dataloader(
     batch_size: int = 32,
     num_workers: int = 4,
     random_coord: bool = False,
+    filter_bbox: str = "minority",
     seed: int = 111,
 ):
     transform = transforms.Compose(
@@ -32,6 +33,7 @@ def get_dataloader(
         transform=transform,
         target_transform=target_transform,
         random_coord=random_coord,
+        filter_bbox=filter_bbox,
     )
 
     train_loader = torch.utils.data.DataLoader(
@@ -50,15 +52,18 @@ class MyCOCO(COCO):
         anns, cats, imgs = {}, {}, {}
         imgToAnns, catToImgs = defaultdict(list), defaultdict(list)
 
+        removed = 0
         if "annotations" in self.dataset:
             for ann in self.dataset["annotations"]:
                 # removing group annotation, when iscrowd is 1 there's a single bbox around
                 # a group of instances of the same category
                 if ann["iscrowd"]:
+                    removed += 1
                     continue
 
                 imgToAnns[ann["image_id"]].append(ann)
                 anns[ann["id"]] = ann
+        print(f"removed {removed}")
 
         if "images" in self.dataset:
             for img in self.dataset["images"]:
@@ -72,6 +77,8 @@ class MyCOCO(COCO):
 
         if "annotations" in self.dataset and "categories" in self.dataset:
             for ann in self.dataset["annotations"]:
+                if ann["iscrowd"]:
+                    continue
                 catToImgs[ann["category_id"]].append(ann["image_id"])
 
         print("index created!")
@@ -93,6 +100,7 @@ class MyCocoDetection(datasets.CocoDetection):
         target_transform: Optional[Callable] = None,
         transforms: Optional[Callable] = None,
         random_coord: Optional[bool] = None,
+        filter_bbox: str = "minority",
     ) -> None:
         super(MyCocoDetection, self).__init__(
             root, transforms, transform, target_transform
@@ -101,11 +109,37 @@ class MyCocoDetection(datasets.CocoDetection):
         self.coco = MyCOCO(annFile)
         self.ids = list(sorted(self.coco.imgs.keys()))
         self.random_coord = random_coord
+        if filter_bbox == "random":
+            self.filter_bbox = self.random_target
+        elif filter_bbox == "smallest":
+            self.filter_bbox = self.smallesst_target
+        elif filter_bbox == "minority":
+            self.filter_bbox = self.minority_voting
+        else:
+            raise RuntimeError("I don't know how to filter targets with {filter_bbox}")
+
+    def random_target(self, targets: List):
+        return targets[torch.randint(len(targets), size=(1,)).item()]
+
+    def smallest_target(self, targets: List):
+        area_list = [elem["area"] for elem in targets]
+        return area_list.index(min(area_list))
+
+    def minority_voting(self, targets: List):
+        if len(targets) > 1:
+            counter = defaultdict(int)
+            for elem in targets:
+                counter[elem["category_id"]] += 1
+            c = Counter(counter)
+            cat_to_pick = c.most_common()[-1]
+            for i, elem in enumerate(targets):
+                if elem["category_id"] == cat_to_pick[0]:
+                    break
+            return targets[i]
+        return targets[0]
 
     def __getitem__(self, index):
         img, target = self._load_image_and_target(index)
-
-        # target = [] if len(target) < 5 else target
 
         img_size = (
             img.size[1],
@@ -113,17 +147,18 @@ class MyCocoDetection(datasets.CocoDetection):
         )  # pillow images report size in (W, H) format whereas pytorh uses (H, W)
         img = self.transform(img)
 
-        random_target = target[torch.randint(len(target), size=(1,)).item()]
+        picked_target = self.filter_bbox(target)
+
         if self.random_coord:
             resized_bbox_coord = torch.rand(4) * min(img.shape[1:])
         else:
-            coords = torch.Tensor(random_target["bbox"])
+            coords = torch.Tensor(picked_target["bbox"])
             coords[2] = coords[0] + coords[2]
             coords[3] = coords[1] + coords[3]
 
             resized_bbox_coord = self.target_transform(coords, original_size=img_size)
 
-        label = cat_id2id_and_name[str(random_target["category_id"])][0]
+        label = cat_id2id_and_name[str(picked_target["category_id"])][0]
 
         return (img, resized_bbox_coord), label
 

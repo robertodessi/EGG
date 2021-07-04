@@ -40,6 +40,13 @@ def get_common_opts(params):
         help="Model architecture",
     )
     parser.add_argument(
+        "--filter_bbox",
+        choices=["random", "minority", "smallest"],
+        default="minority",
+        help="Strategy to choose the target bbox in the image (default: minority",
+    )
+
+    parser.add_argument(
         "--merge_mode",
         choices=["sum", "cat", "mul"],
         default="sum",
@@ -107,6 +114,7 @@ def main(params):
         num_workers=opts.num_workers,
         random_coord=opts.random_coord,
         seed=opts.random_seed,
+        filter_bbox=opts.filter_bbox,
     )
 
     game = build_game(opts)
