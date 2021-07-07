@@ -69,7 +69,7 @@ def get_callbacks(opts):
     callbacks = [
         ConsoleLogger(as_json=True, print_train_loss=True),
         BestStatsTracker(),
-        EarlyStopperAccuracy(0.95),
+        EarlyStopperAccuracy(0.95, validation=False),
     ]
 
     if opts.wandb:

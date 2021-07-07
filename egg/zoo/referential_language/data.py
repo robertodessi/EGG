@@ -112,7 +112,7 @@ class MyCocoDetection(datasets.CocoDetection):
         if filter_bbox == "random":
             self.filter_bbox = self.random_target
         elif filter_bbox == "smallest":
-            self.filter_bbox = self.smallesst_target
+            self.filter_bbox = self.smallest_target
         elif filter_bbox == "minority":
             self.filter_bbox = self.minority_voting
         else:
@@ -132,10 +132,9 @@ class MyCocoDetection(datasets.CocoDetection):
                 counter[elem["category_id"]] += 1
             c = Counter(counter)
             cat_to_pick = c.most_common()[-1]
-            for i, elem in enumerate(targets):
-                if elem["category_id"] == cat_to_pick[0]:
-                    break
-            return targets[i]
+            for target in targets:
+                if target["category_id"] == cat_to_pick[0]:
+                    return target
         return targets[0]
 
     def __getitem__(self, index):
